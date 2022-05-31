@@ -1,4 +1,4 @@
-open System
+﻿open System
 
 
 
@@ -16,4 +16,6 @@ let main argv =
     printfn ""
     printfn "%A" Day4.part1
     printfn "%A" Day4.part2
+    printfn ""
+    printfn "%A" Day5.part1
     0 // return an integer exit code
