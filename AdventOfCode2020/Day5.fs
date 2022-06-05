@@ -67,7 +67,7 @@ let getSeat str =
 
 
 let input =
-    Helpers.readAllLines "day5.txt"
+    readAllLines "day5.txt"
 
 let allSeats =
     input
