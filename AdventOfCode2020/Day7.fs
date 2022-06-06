@@ -1,18 +1,16 @@
 ﻿module Day7
 
+/// Every colour is a string contained two words
+type Colour = Colour of string
+
+type BagContents = { Colour : Colour; Count : int }
+
+type BagRule =
+    { Colour : Colour
+      Bags : BagContents list }
+
+
 module Parser =
-
-    /// Every colour is a string contained two words
-    type Colour = Colour of string
-
-    type BagContents = { Colour : Colour; Count : int }
-
-    type BagRule =
-        { Colour : Colour
-          Bags : BagContents list }
-
-
-
 
     type BagParser =
         | ColourDescription of string
@@ -31,7 +29,7 @@ module Parser =
         | Contain of Colour // after word 'contain' for container bag
         | ContainedBags of containerClr : Colour * BagContents list * CountBagParser
         | Comma of containerClr : Colour * BagContents list
-        | FullStop of containerClr : Colour * BagContents list // and terminate here
+        | FullStop of BagRule // and terminate here
         | Failed of reason : string
 
     let splitIntoWords (str : string) =
@@ -59,7 +57,10 @@ module Parser =
                         BagParser.Bags (Colour <| descr + " " + word) |> Container
                     | BagParser.Bags clr -> Contain clr
                 | Contain clr ->
-                    ContainedBags (clr, List.empty, Count <| int word)
+                    if word = "no" then
+                        FullStop {Colour = clr; Bags = List.empty } // terminate here
+                    else
+                        ContainedBags (clr, List.empty, Count <| int word)
                 | ContainedBags (clr, list, bagState) ->
                     let cont state = ContainedBags (clr, list, state)
 
@@ -74,25 +75,102 @@ module Parser =
                         if word = "," then
                             Comma (clr, {Count=cnt;Colour=bagClr} :: list)
                         else if word = "." then
-                            FullStop (clr, {Count=cnt;Colour=bagClr} :: list)
+                            FullStop { Colour = clr; Bags = {Count=cnt;Colour=bagClr} :: list}
                         else Failed $"""Expected "," or "." but got "{word}" instead"""
                 | Comma (clr,bags) -> ContainedBags (clr, bags, Count <| int word)
-                | FullStop (clr, bags) -> FullStop (clr, bags)
+                | FullStop state -> FullStop state
                 | Failed reason -> Failed reason
 
             )
             NotStartedYet
         |> function
-           | FullStop (colour, bags) -> colour, bags
+           | FullStop rule -> rule
            | Failed reason -> failwith $"Parsing failed because of reason: {reason}"
            | state -> failwith $"Got stuck at state {state}"
 
 
 
+let input =
+    readAllLines "day7.txt"
 
-let parserTest =
-    Parser.parseBag "light magenta bags contain 4 clear bronze bags, 4 dull teal bags, 4 posh salmon bags."
+let allRules =
+    input
+    |> List.map Parser.parseBag
+
+type RuleTree =
+    { Colour : Colour
+      Children : RuleTree list }
 
 
 
-let part1 = parserTest
+let rec getAllColours (tree : RuleTree) =
+    match tree.Children with
+    | [] -> Set.singleton tree.Colour
+    | children ->
+        children
+        |> List.map getAllColours
+        |> Set.unionMany
+        |> Set.add tree.Colour
+
+
+
+let constructRuleTree (rules : BagRule list) =
+    let map =
+        rules
+        |> List.map (fun rule -> rule.Colour, rule.Bags |> List.map (fun bag -> bag.Colour))
+        |> Map.ofList
+
+    let rec makeTree containerClr =
+        let childClrs =
+            Map.tryFind containerClr map
+            |> Option.defaultValue List.empty
+
+        { Colour = containerClr
+          Children = childClrs |> List.map makeTree }
+
+    let trees =
+        map
+        |> Map.map (fun containerClr _ -> makeTree containerClr)
+
+    let allSubClrs =
+        map
+        |> Map.fold (fun set _ clrs -> clrs |> Set.ofList |> Set.union set) Set.empty
+
+    let topLevelTrees = 
+        trees
+        |> Map.filter (fun clr _ -> Set.contains clr allSubClrs |> not)
+        |> Map.values
+        |> Seq.toList
+
+    topLevelTrees
+
+
+/// Prune all branches that don't ultimately contain a clrToFind
+let rec pruneTree clrToFind (tree : RuleTree) =
+    let fulsomeChildren =
+        tree.Children
+        |> List.choose (pruneTree clrToFind)
+
+    match fulsomeChildren with
+    | [] ->
+        if tree.Colour = clrToFind then
+            Some { tree with Children = List.empty }
+        else None
+    | fsc ->
+        { tree with Children = fsc } |> Some
+
+
+let ruleTrees =
+    allRules
+    |> constructRuleTree
+
+let shinyGold = Colour "shiny gold"
+
+let part1 =
+    ruleTrees
+    |> List.choose
+        (pruneTree shinyGold >> Option.map getAllColours)
+    |> List.fold Set.union Set.empty
+    |> Set.remove shinyGold
+    |> Set.count
+
