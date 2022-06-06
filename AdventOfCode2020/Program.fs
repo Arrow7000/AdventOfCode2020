@@ -22,4 +22,6 @@ let main argv =
     printfn ""
     printfn "%A" Day6.part1
     printfn "%A" Day6.part2
+    printfn ""
+    printfn "%A" Day7.part1
     0 // return an integer exit code
