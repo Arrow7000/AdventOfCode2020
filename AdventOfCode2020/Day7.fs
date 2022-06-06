@@ -97,13 +97,13 @@ let allRules =
     input
     |> List.map Parser.parseBag
 
-type RuleTree =
+type BagTree =
     { Colour : Colour
-      Children : RuleTree list }
+      Children : BagTree list }
 
 
 
-let rec getAllColours (tree : RuleTree) =
+let rec getAllColours (tree : BagTree) =
     match tree.Children with
     | [] -> Set.singleton tree.Colour
     | children ->
@@ -114,7 +114,7 @@ let rec getAllColours (tree : RuleTree) =
 
 
 
-let constructRuleTree (rules : BagRule list) =
+let constructBagTree (rules : BagRule list) =
     let map =
         rules
         |> List.map (fun rule -> rule.Colour, rule.Bags |> List.map (fun bag -> bag.Colour))
@@ -145,8 +145,16 @@ let constructRuleTree (rules : BagRule list) =
     topLevelTrees
 
 
+let rec countNodes (tree : BagTree) =
+    1 + (List.map countNodes tree.Children |> List.sum)
+
+let rec countNodesExcept clrToIgnore (tree : BagTree) =
+    if tree.Colour = clrToIgnore then 0
+    else
+        1 + (List.map (countNodesExcept clrToIgnore) tree.Children |> List.sum)
+
 /// Prune all branches that don't ultimately contain a clrToFind
-let rec pruneTree clrToFind (tree : RuleTree) =
+let rec pruneTree clrToFind (tree : BagTree) =
     let fulsomeChildren =
         tree.Children
         |> List.choose (pruneTree clrToFind)
@@ -162,7 +170,7 @@ let rec pruneTree clrToFind (tree : RuleTree) =
 
 let ruleTrees =
     allRules
-    |> constructRuleTree
+    |> constructBagTree
 
 let shinyGold = Colour "shiny gold"
 
@@ -173,4 +181,103 @@ let part1 =
     |> List.fold Set.union Set.empty
     |> Set.remove shinyGold
     |> Set.count
+
+
+
+
+type Count = Cnt of int | TopLevel
+
+
+type BagTreeWithCount =
+    { Colour : Colour
+      Count : Count
+      Children : BagTreeWithCount list }
+
+
+/// So that top level items can be compared
+let resetTopLevelCount item =
+    { item with BagTreeWithCount.Count = TopLevel }
+
+
+let constructBagTreeWithCount (rules : BagRule list) : BagTreeWithCount list =
+    let map =
+        rules
+        |> List.map
+            (fun rule -> rule.Colour, rule.Bags |> List.map (fun bag -> bag.Colour, bag.Count))
+        |> Map.ofList
+
+    let rec makeTree count clr =
+        let countsAndClrs =
+            Map.tryFind clr map
+            |> Option.defaultValue List.empty
+
+        { Colour = clr
+          Count = count
+          Children = countsAndClrs |> List.map (fun (clr',n) -> makeTree (Cnt n) clr' ) }
+
+    let trees =
+        map
+        |> Map.map (fun containerClr _ -> makeTree TopLevel containerClr)
+
+    let allSubClrs =
+        map
+        |> Map.fold (fun set _ clrs -> clrs |> List.map fst |> Set.ofList |> Set.union set) Set.empty
+
+    let topLevelTrees = 
+        trees
+        |> Map.filter (fun clr _ -> Set.contains clr allSubClrs |> not)
+        |> Map.values
+        |> Seq.toList
+        |> List.map resetTopLevelCount
+
+    topLevelTrees
+
+
+let rec findSubtrees clr (tree : BagTreeWithCount) =
+    if tree.Colour = clr then List.singleton tree
+    else
+        tree.Children
+        |> List.collect (findSubtrees clr)
+
+
+
+let rec countBags (tree : BagTreeWithCount) =
+    let selfCount =
+        match tree.Count with
+        | TopLevel -> 1
+        | Cnt n -> n
+
+    selfCount + selfCount * (List.map countBags tree.Children |> List.sum)
+
+
+
+type Comparison<'a when 'a : comparison> =
+    | NotStartedYet
+    | Equal of last : 'a
+    | NotEqual
+
+
+let areAllEqual xs =
+    xs
+    |> List.fold
+        (fun state thisOne ->
+            match state with
+            | NotStartedYet -> Equal thisOne
+            | Equal x -> if x = thisOne then Equal thisOne else NotEqual
+            | NotEqual -> NotEqual)
+        NotStartedYet
+    |> function
+       | NotStartedYet -> true
+       | Equal _ -> true
+       | NotEqual -> false
+
+let part2 =
+    allRules
+    |> constructBagTreeWithCount
+    |> List.collect (findSubtrees shinyGold)
+    |> List.map resetTopLevelCount
+    |> List.head
+    |> fun sg -> sg.Children // to remove the shiny gold container itself
+    |> List.map countBags
+    |> List.sum
 
